@@ -31,6 +31,7 @@ impl bank_account_server::BankAccount for BankAccountService {
         request: Request<OpenAccountCommand>,
     ) -> Result<tonic::Response<Response>, Status> {
         let command = request.into_inner();
+        println!("GOT OPEN ACCOUNT REQUEST {:?}", command);
 
         let exists = self
             .event_store
