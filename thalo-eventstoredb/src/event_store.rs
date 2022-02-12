@@ -1,4 +1,4 @@
-use std::vec;
+use std::{vec, fmt::Debug};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -43,6 +43,7 @@ impl ESDBEventPayload {
     }
 }
 
+#[derive(Clone)]
 pub struct ESDBEventStore {
     pub client: Client,
 }
@@ -200,6 +201,13 @@ impl EventStore for ESDBEventStore {
             .await?;
 
         Ok((revision..events.len() - 1).collect())
+    }
+}
+
+impl Debug for ESDBEventStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ESDBEventStore")
+            .field("client", &"eventstore::Client").finish()
     }
 }
 

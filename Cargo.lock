@@ -430,11 +430,13 @@ name = "example-protobuf"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "eventstore",
  "futures-util",
  "prost",
  "serde_json",
  "text_io",
  "thalo",
+ "thalo-eventstoredb",
  "thalo-inmemory",
  "tokio",
  "tokio-stream",

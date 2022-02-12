@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
 use thalo::{
     aggregate::Aggregate, event::AggregateEventEnvelope, event_store::EventStore,
     tests_cfg::bank_account::BankAccount,
 };
-use thalo_inmemory::InMemoryEventStore;
+use thalo_eventstoredb::ESDBEventStore;
 use tokio::sync::broadcast::Sender;
 use tonic::{Request, Status};
 
@@ -12,15 +10,15 @@ tonic::include_proto!("bank_account");
 
 #[derive(Clone, Debug)]
 pub struct BankAccountService {
-    pub(crate) event_store: Arc<InMemoryEventStore>,
+    pub(crate) event_store: ESDBEventStore,
     event_stream: Sender<AggregateEventEnvelope<BankAccount>>,
 }
 
 impl BankAccountService {
     #[allow(unused)]
-    pub fn new(event_stream: Sender<AggregateEventEnvelope<BankAccount>>) -> Self {
+    pub fn new(event_stream: Sender<AggregateEventEnvelope<BankAccount>>, event_store: ESDBEventStore) -> Self {
         BankAccountService {
-            event_store: Arc::new(InMemoryEventStore::default()),
+            event_store,
             event_stream,
         }
     }
@@ -129,7 +127,7 @@ impl bank_account_server::BankAccount for BankAccountService {
 }
 
 async fn broadcast_events(
-    event_store: &InMemoryEventStore,
+    event_store: &ESDBEventStore,
     event_stream: &Sender<AggregateEventEnvelope<BankAccount>>,
     event_ids: &[usize],
 ) -> Result<(), Status> {
