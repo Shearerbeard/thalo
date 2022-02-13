@@ -37,13 +37,31 @@ impl bank_account_server::BankAccount for BankAccountService {
             .event_store
             .load_aggregate_sequence::<BankAccount>(&command.id)
             .await
-            .map_err(|err| Status::internal(err.to_string()))?
-            .is_some();
-        if exists {
-            return Err(Status::already_exists("account already opened"));
+            .map_err(|err| Status::internal(err.to_string()));// ?
+            // .is_some();
+        println!("OPEN ACCOUNT REQUEST finished load_aggregate_sequence witout Err");
+        match exists {
+            Ok(Some(_)) => {
+                println!("ACCOUNT Thinks it exists - Err!");
+                return Err(Status::already_exists("account already opened"));
+            },
+            Ok(None) => {
+                println!("ACCOUNT Thinks it doesnt exist - Ok(None)!");
+            },
+            Err(e) => {
+                println!("ACCOUNT Thinks it doesn't exists - Err! {:?}", e)
+            }
         }
 
+        // if exists {
+        //     println!("ACCOUNT Thinks it exists - Err!");
+        //     return Err(Status::already_exists("account already opened"));
+        // }
+
+        println!("ACCOUNT does not exist - proceeding...");
+
         let (bank_account, event) = BankAccount::open_account(command.id, command.initial_balance)?;
+        println!("GOT NEW BANK ACCOUNT Event to dispatch! {:?}", event);
         let events = &[event];
 
         let event_ids = self
