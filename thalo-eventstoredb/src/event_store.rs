@@ -116,7 +116,6 @@ impl EventStore for ESDBEventStore {
         A: Aggregate,
         <A as Aggregate>::Event: DeserializeOwned,
     {
-        println!("load_events_by_id {:?}", ids);
         let options = ReadAllOptions::default()
             .position(StreamPosition::Start)
             .forwards();
@@ -127,26 +126,20 @@ impl EventStore for ESDBEventStore {
             .await
             .map_err(Error::ReadStreamError)?;
 
-        println!("GOT HERE read_all");
-
         let mut rv: Vec<AggregateEventEnvelope<A>> = vec![];
 
         while let Some(event) = result.next().await? {
             let event_data = event.get_original_event();
 
-            println!("GOT HERE event_data.event_type {:?}", event_data.event_type);
-
-            if !event_data.event_type.starts_with("$") {
+            if event_data.event_type.starts_with("$") {
                 continue;
             }
 
-            println!(
-                "load_events_by_id checking event revision {:?}: {:?}",
-                event_data.revision,
-                event_data
-                    .as_json::<ESDBEventPayload>()
-                    .map_err(Error::DeserializeEvent)
-            );
+            let is_aggregate_event = event_data.stream_id.starts_with(<A as TypeId>::type_id());
+
+            if !is_aggregate_event {
+                continue;
+            }
 
             // TODO: - can we try event eventlope ids as uuid in addition to usize?
             // let uuid = event_data.id.clone();
@@ -181,7 +174,7 @@ impl EventStore for ESDBEventStore {
             .await;
 
         if let Ok(mut stream) = result {
-            while let Some(event) = stream.next().await? {
+            while let Ok(Some(event)) = stream.next().await {
                 let event_data = event.get_original_event();
                 return Ok(Some(event_data.revision as usize));
             }
@@ -240,14 +233,15 @@ impl EventStore for ESDBEventStore {
         let mut i = events.len();
         let mut position = res.next_expected_version as usize;
 
-        while i > 0 {
-            event_ids.push(position);
-            i = i - 1;
-            position = position - 1;
+        if position == 0 {
+            event_ids.push(0)
+        } else {
+            while i > 0 {
+                event_ids.push(position);
+                i = i - 1;
+                position = position - 1;
+            }
         }
-
-        println!("SAVE_EVENTS NEXT EXPECTED {:?}", res.next_expected_version);
-        println!("SAVE_EVENTS RETURN IDS {:?}", event_ids);
 
         Ok(event_ids)
     }
@@ -263,7 +257,11 @@ impl Debug for ESDBEventStore {
 
 #[cfg(feature = "debug")]
 impl ESDBEventStore {
-    pub async fn print(&self) {
+    pub async fn print<A>(&self)
+    where
+        A: Aggregate,
+        <A as Aggregate>::Event: serde::Serialize,
+    {
         println!("Calling Read All");
         let stream_res = self.client.read_all(&Default::default()).await;
 
@@ -274,7 +272,13 @@ impl ESDBEventStore {
             while let Some(event) = stream.next().await.unwrap() {
                 let event_data = event.get_original_event();
 
-                if !event_data.event_type.starts_with("$") {
+                if event_data.event_type.starts_with("$") {
+                    continue;
+                }
+
+                let is_aggregate_event = event_data.stream_id.starts_with(<A as TypeId>::type_id());
+
+                if !is_aggregate_event {
                     continue;
                 }
 
@@ -319,5 +323,7 @@ impl ESDBEventStore {
                 );
             }
         }
+
+        table.printstd();
     }
 }
