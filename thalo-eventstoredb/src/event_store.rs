@@ -1,9 +1,9 @@
-use std::{vec, fmt::Debug};
+use std::{fmt::Debug, vec};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use eventstore::{
-    AppendToStreamOptions, Client, EventData, ExpectedRevision, ReadStreamOptions,
+    AppendToStreamOptions, Client, EventData, ExpectedRevision, ReadAllOptions, ReadStreamOptions,
     StreamPosition,
 };
 use futures::TryFutureExt;
@@ -116,24 +116,41 @@ impl EventStore for ESDBEventStore {
         A: Aggregate,
         <A as Aggregate>::Event: DeserializeOwned,
     {
-        let options = ReadStreamOptions::default()
+        println!("load_events_by_id {:?}", ids);
+        let options = ReadAllOptions::default()
             .position(StreamPosition::Start)
             .forwards();
 
         let mut result = self
             .client
-            .read_stream(self.stream_id::<A>(None), &options)
+            .read_all(&options)
             .await
             .map_err(Error::ReadStreamError)?;
+
+        println!("GOT HERE read_all");
 
         let mut rv: Vec<AggregateEventEnvelope<A>> = vec![];
 
         while let Some(event) = result.next().await? {
             let event_data = event.get_original_event();
 
+            println!("GOT HERE event_data.event_type {:?}", event_data.event_type);
+
+            if !event_data.event_type.starts_with("$") {
+                continue;
+            }
+
+            println!(
+                "load_events_by_id checking event revision {:?}: {:?}",
+                event_data.revision,
+                event_data
+                    .as_json::<ESDBEventPayload>()
+                    .map_err(Error::DeserializeEvent)
+            );
+
             // TODO: - can we try event eventlope ids as uuid in addition to usize?
             // let uuid = event_data.id.clone();
-            let sequence = usize::try_from(event_data.revision).unwrap();
+            let sequence = event_data.revision as usize;
             if ids.contains(&sequence) {
                 let event_payload = event_data
                     .as_json::<ESDBEventPayload>()
@@ -158,17 +175,16 @@ impl EventStore for ESDBEventStore {
             .position(StreamPosition::End)
             .max_count(1);
 
-        println!("CALLED load_aggregate_sequence with type {:?} and id {:?}", <A as TypeId>::type_id().to_string(), id.to_string());
-        let mut stream = self
+        let result = self
             .client
             .read_stream(self.stream_id::<A>(Some(id)), &options)
-            .await
-            .map_err(Error::ReadStreamError)?;
-        println!("RESOLVED load_aggregate_sequence with Result {:?}", stream);
+            .await;
 
-        while let Some(event) = stream.next().await? {
-            let event_data = event.get_original_event();
-            return Ok(Some(event_data.revision as usize));
+        if let Ok(mut stream) = result {
+            while let Some(event) = stream.next().await? {
+                let event_data = event.get_original_event();
+                return Ok(Some(event_data.revision as usize));
+            }
         }
 
         Ok(None)
@@ -183,14 +199,19 @@ impl EventStore for ESDBEventStore {
         A: Aggregate,
         <A as Aggregate>::Event: serde::Serialize,
     {
-
-        print!("CALLED SAVE_EVENTS {:?}", id.to_string());
         if events.is_empty() {
             return Ok(vec![]);
         }
 
-        let revision = self.load_aggregate_sequence::<A>(id).await?.unwrap_or(0);
-        print!("SAVE_EVENTS REVISION {:?}", revision);
+        let sequence = self.load_aggregate_sequence::<A>(id).await.unwrap_or(None);
+
+        let revision = {
+            match sequence {
+                Some(n) => ExpectedRevision::Exact(n as u64),
+                None => ExpectedRevision::NoStream,
+            }
+        };
+
         let mut payload: Vec<EventData> = vec![];
 
         for event in events.iter() {
@@ -208,22 +229,35 @@ impl EventStore for ESDBEventStore {
             payload.push(event_data);
         }
 
-        let options = AppendToStreamOptions::default()
-            .expected_revision(ExpectedRevision::Exact(revision as u64));
-        let _ = self
+        let options = AppendToStreamOptions::default().expected_revision(revision);
+        let res = self
             .client
             .append_to_stream(&self.stream_id::<A>(Some(id)), &options, payload)
-            .map_err(|err| Error::WriteStreamError(revision as usize, err))
+            .map_err(|err| Error::WriteStreamError(sequence.unwrap_or(0) as usize, err))
             .await?;
 
-        Ok((revision..events.len() - 1).collect())
+        let mut event_ids = vec![];
+        let mut i = events.len();
+        let mut position = res.next_expected_version as usize;
+
+        while i > 0 {
+            event_ids.push(position);
+            i = i - 1;
+            position = position - 1;
+        }
+
+        println!("SAVE_EVENTS NEXT EXPECTED {:?}", res.next_expected_version);
+        println!("SAVE_EVENTS RETURN IDS {:?}", event_ids);
+
+        Ok(event_ids)
     }
 }
 
 impl Debug for ESDBEventStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ESDBEventStore")
-            .field("client", &"eventstore::Client").finish()
+            .field("client", &"eventstore::Client")
+            .finish()
     }
 }
 
@@ -231,10 +265,7 @@ impl Debug for ESDBEventStore {
 impl ESDBEventStore {
     pub async fn print(&self) {
         println!("Calling Read All");
-        let stream_res = self
-            .client
-            .read_all(&Default::default())
-            .await;
+        let stream_res = self.client.read_all(&Default::default()).await;
 
         println!("Read Completed {:?}", stream_res);
 
