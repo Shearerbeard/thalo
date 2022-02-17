@@ -229,21 +229,10 @@ impl EventStore for ESDBEventStore {
             .map_err(|err| Error::WriteStreamError(sequence.unwrap_or(0) as usize, err))
             .await?;
 
-        let mut event_ids = vec![];
-        let mut i = events.len();
-        let mut position = res.next_expected_version as usize;
+        let end_position = res.next_expected_version as usize;
+        let start_position = end_position - (events.len() - 1);
 
-        if position == 0 {
-            event_ids.push(0)
-        } else {
-            while i > 0 {
-                event_ids.push(position);
-                i = i - 1;
-                position = position - 1;
-            }
-        }
-
-        Ok(event_ids)
+        Ok((start_position..end_position + 1).collect::<Vec<usize>>())
     }
 }
 
