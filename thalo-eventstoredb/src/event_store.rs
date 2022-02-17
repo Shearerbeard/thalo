@@ -135,7 +135,7 @@ impl EventStore for ESDBEventStore {
                 continue;
             }
 
-            let is_aggregate_event = event_data.stream_id.starts_with(<A as TypeId>::type_id());
+            let is_aggregate_event = event_data.stream_id.starts_with(self.stream_id::<A>(None).as_str());
 
             if !is_aggregate_event {
                 continue;
@@ -262,10 +262,7 @@ impl ESDBEventStore {
         A: Aggregate,
         <A as Aggregate>::Event: serde::Serialize,
     {
-        println!("Calling Read All");
         let stream_res = self.client.read_all(&Default::default()).await;
-
-        println!("Read Completed {:?}", stream_res);
 
         let mut events: Vec<(Uuid, u64, ESDBEventPayload)> = vec![];
         if let Ok(mut stream) = stream_res {
@@ -276,7 +273,7 @@ impl ESDBEventStore {
                     continue;
                 }
 
-                let is_aggregate_event = event_data.stream_id.starts_with(<A as TypeId>::type_id());
+                let is_aggregate_event = event_data.stream_id.starts_with(self.stream_id::<A>(None).as_str());
 
                 if !is_aggregate_event {
                     continue;

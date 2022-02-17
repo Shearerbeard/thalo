@@ -37,10 +37,9 @@ impl bank_account_server::BankAccount for BankAccountService {
             .event_store
             .load_aggregate_sequence::<BankAccount>(&command.id)
             .await
-            .map_err(|err| Status::internal(err.to_string()))
+            .map_err(|err| Status::internal(err.to_string()))?
             .is_some();
 
-        println!("OPEN ACCOUNT AGG SEQUENCE {:?}", aggregate_sequence);
 
         if exists {
             println!("ACCOUNT Thinks it exists - Err!");
