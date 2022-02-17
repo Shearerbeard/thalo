@@ -20,9 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = "esdb://localhost:2113?tls=false"
         .parse::<ClientSettings>()?;
     let client = Client::new(settings)?;
-    println!("GOT CLIENT");
     let event_store = ESDBEventStore::new(client);
-    println!("GOT EVENT_STORE {:?}", event_store);
     let (event_stream, event_stream_rx1) = broadcast::channel(16);
 
     let bank_account_service = BankAccountService::new(event_stream.clone(), event_store.clone());
@@ -32,9 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut broadcast_stream = BroadcastStream::new(event_stream_rx1);
         let bank_account_service2 = bank_account_service.clone();
         let bank_account_projection = BankAccountProjection::default();
-        println!("CALLING TABLES, DOES IT EVER RETURN?");
         print_tables(&bank_account_service2.event_store, &bank_account_projection);
-        println!("IT DOES!");
 
         tokio::spawn(async move {
             let mut events =
@@ -60,4 +56,10 @@ fn print_tables(_event_store: &ESDBEventStore, bank_account_projection: &BankAcc
     println!("Event Store");
     println!("\nBank Account Projection");
     bank_account_projection.print_bank_accounts();
+
+    // let borrowed_store = event_store.clone();
+
+    // tokio::spawn(async move {
+    //     let _ = borrowed_store.print::<BankAccount>();
+    // });
 }

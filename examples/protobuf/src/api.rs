@@ -31,7 +31,6 @@ impl bank_account_server::BankAccount for BankAccountService {
         request: Request<OpenAccountCommand>,
     ) -> Result<tonic::Response<Response>, Status> {
         let command = request.into_inner();
-        println!("OPEN ACCOUNT COMMAND {:?}", command);
 
         let exists = self
             .event_store
@@ -47,7 +46,6 @@ impl bank_account_server::BankAccount for BankAccountService {
         }
 
         let (bank_account, event) = BankAccount::open_account(command.id, command.initial_balance)?;
-        println!("GOT NEW BANK ACCOUNT Event to dispatch! {:?}", event);
         let events = &[event];
 
         let event_ids = self
@@ -55,8 +53,6 @@ impl bank_account_server::BankAccount for BankAccountService {
             .save_events::<BankAccount>(bank_account.id(), events)
             .await
             .map_err(|err| Status::internal(err.to_string()))?;
-
-        println!("OPEN ACCOUNT REQUEST finished save_events without err - {:?}", event_ids);
 
         broadcast_events(&self.event_store, &self.event_stream, &event_ids).await?;
 
@@ -138,12 +134,10 @@ async fn broadcast_events(
     event_stream: &Sender<AggregateEventEnvelope<BankAccount>>,
     event_ids: &[usize],
 ) -> Result<(), Status> {
-    println!("LOADING EVENT ENVELOPES FOR BROADCAST");
     let event_envelopes = event_store
         .load_events_by_id::<BankAccount>(event_ids)
         .await
         .map_err(|err| Status::internal(err.to_string()))?;
-    println!("LOADING EVENT RESULT {:?}", event_envelopes);
 
     for event_envelope in event_envelopes {
         event_stream
