@@ -30,14 +30,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut broadcast_stream = BroadcastStream::new(event_stream_rx1);
         let bank_account_service2 = bank_account_service.clone();
         let bank_account_projection = BankAccountProjection::default();
-        print_tables(&bank_account_service2.event_store, &bank_account_projection);
+        print_tables(&bank_account_service2.event_store, &bank_account_projection).await;
 
         tokio::spawn(async move {
             let mut events =
                 EventStream::<BankAccount>::listen_events(&mut broadcast_stream).unwrap();
             while let Some(Ok(event)) = events.next().await {
                 bank_account_projection.handle(event).await.unwrap();
-                print_tables(&bank_account_service2.event_store, &bank_account_projection);
+                print_tables(&bank_account_service2.event_store, &bank_account_projection).await;
             }
         });
     }
@@ -51,15 +51,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn print_tables(_event_store: &ESDBEventStore, bank_account_projection: &BankAccountProjection) {
+async fn print_tables(event_store: &ESDBEventStore, bank_account_projection: &BankAccountProjection) {
     print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
     println!("Event Store");
     println!("\nBank Account Projection");
     bank_account_projection.print_bank_accounts();
 
-    // let borrowed_store = event_store.clone();
-
-    // tokio::spawn(async move {
-    //     let _ = borrowed_store.print::<BankAccount>();
-    // });
+    {
+        let borrowed_store = event_store.clone();
+        println!("Event Store");
+        println!("\nBank Account Events");
+        borrowed_store.print::<BankAccount>().await
+    }
 }
