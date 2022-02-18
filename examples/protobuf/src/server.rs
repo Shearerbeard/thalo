@@ -13,7 +13,6 @@ mod api;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("INIT");
     let addr = "[::1]:50051".parse().unwrap();
 
     // Event stream channel
