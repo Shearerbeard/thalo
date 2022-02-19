@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use eventstore::{
     AppendToStreamOptions, Client, EventData, ExpectedRevision, ReadAllOptions, ReadStreamOptions,
-    StreamPosition,
+    StreamPosition, ResolvedEvent,
 };
 use futures::TryFutureExt;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -68,6 +68,37 @@ impl ESDBEventStore {
     }
 }
 
+impl ESDBEventStore {
+    async fn read_stream(
+        &self,
+        stream_id: String,
+        options: ReadStreamOptions
+    ) -> Result<Vec<ResolvedEvent>, Error> {
+        let mut stream = self
+            .client
+            .read_stream(stream_id, &options)
+            .map_err(Error::ReadStreamError)
+            .await?;
+
+        let mut rv = vec![];
+        let mut streaming = true;
+
+        while streaming {
+            match stream.next().await {
+                Ok(Some(event)) => {
+                    rv.push(event);
+                },
+                Ok(None) => {
+                    streaming = false;
+                },
+                Err(eventstore::Error::ResourceNotFound) => return Ok(vec![]),
+                Err(e) => return Err(Error::ReadStreamError(e)),
+            }
+        }
+        Ok(rv)
+    }
+}
+
 #[async_trait]
 impl EventStore for ESDBEventStore {
     type Error = Error;
@@ -84,15 +115,11 @@ impl EventStore for ESDBEventStore {
             .position(StreamPosition::Start)
             .forwards();
 
-        let mut result = self
-            .client
-            .read_stream(self.stream_id::<A>(id), &options)
-            .await
-            .map_err(Error::ReadStreamError)?;
+        let events = self.read_stream(self.stream_id::<A>(id), options).await?;
 
-        let mut rv: Vec<AggregateEventEnvelope<A>> = vec![];
+        let mut rv = vec![];
 
-        while let Some(event) = result.next().await? {
+        for event in events.iter() {
             let event_data = event.get_original_event();
 
             // TODO: - can we try event eventlope ids as uuid in addition to usize?
@@ -135,7 +162,9 @@ impl EventStore for ESDBEventStore {
                 continue;
             }
 
-            let is_aggregate_event = event_data.stream_id.starts_with(self.stream_id::<A>(None).as_str());
+            let is_aggregate_event = event_data
+                .stream_id
+                .starts_with(self.stream_id::<A>(None).as_str());
 
             if !is_aggregate_event {
                 continue;
@@ -168,16 +197,10 @@ impl EventStore for ESDBEventStore {
             .position(StreamPosition::End)
             .max_count(1);
 
-        let result = self
-            .client
-            .read_stream(self.stream_id::<A>(Some(id)), &options)
-            .await;
-
-        if let Ok(mut stream) = result {
-            while let Ok(Some(event)) = stream.next().await {
-                let event_data = event.get_original_event();
-                return Ok(Some(event_data.revision as usize));
-            }
+        let events = self.read_stream(self.stream_id::<A>(Some(id)), options).await?;
+        if let Some(event) = events.iter().next() {
+            let event_data = event.get_original_event();
+            return Ok(Some(event_data.revision as usize));
         }
 
         Ok(None)
@@ -262,7 +285,9 @@ impl ESDBEventStore {
                     continue;
                 }
 
-                let is_aggregate_event = event_data.stream_id.starts_with(self.stream_id::<A>(None).as_str());
+                let is_aggregate_event = event_data
+                    .stream_id
+                    .starts_with(self.stream_id::<A>(None).as_str());
 
                 if !is_aggregate_event {
                     continue;
